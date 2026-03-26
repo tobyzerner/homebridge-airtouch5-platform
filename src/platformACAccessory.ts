@@ -9,6 +9,9 @@ import { MAGIC } from './magic';
 export class AirTouchACAccessory {
   private service: Service;
   private fanService: Service;
+  private readonly supportedFanSpeeds: number[];
+  private readonly supportsAutoFanSpeed: boolean;
+  private readonly rotationSpeedStep: number;
   AirtouchId;
   ACNumber;
   minTemp: number;
@@ -37,6 +40,9 @@ export class AirTouchACAccessory {
     this.ac = ac;
     this.zones = zones;
     this.api = api;
+    this.supportedFanSpeeds = this.getSupportedFanSpeeds();
+    this.supportsAutoFanSpeed = +ac.ac_ability.ac_support_fan_auto === 1;
+    this.rotationSpeedStep = this.getRotationSpeedStep();
     this.accessory.getService(this.platform.Service.AccessoryInformation)
       ?.setCharacteristic(
         this.platform.Characteristic.Manufacturer,
@@ -93,8 +99,8 @@ export class AirTouchACAccessory {
       .onGet(this.handleRotationSpeedGet.bind(this))
       .onSet(this.handleRotationSpeedSet.bind(this)).setProps({
         minValue: 0,
-        maxValue: 99,
-        minStep: 33,
+        maxValue: 100,
+        minStep: this.rotationSpeedStep,
       });
 
     this.fanService.getCharacteristic(this.platform.Characteristic.Active)
@@ -114,8 +120,8 @@ export class AirTouchACAccessory {
       .onGet(this.handleRotationSpeedGet.bind(this))
       .onSet(this.handleRotationSpeedSet.bind(this)).setProps({
         minValue: 0,
-        maxValue: 99,
-        minStep: 33,
+        maxValue: 100,
+        minStep: this.rotationSpeedStep,
       });
   }
 
@@ -127,15 +133,12 @@ export class AirTouchACAccessory {
 
   handleRotationSpeedGet() {
     const ac_status = this.ac.ac_status!;
-    if(+ac_status.ac_fan_speed > 0) {
-      return (+ac_status.ac_fan_speed-1)*33;
-    }
-    return 0;
+    return this.getRotationPercentageForFanSpeed(+ac_status.ac_fan_speed);
   }
 
   handleRotationSpeedSet(value: CharacteristicValue) {
     const numValue = Number(value);
-    this.api.acSetFanSpeed(this.ac.ac_number, (numValue/33)+1);
+    this.api.acSetFanSpeed(this.ac.ac_number, this.getFanSpeedForRotationPercentage(numValue));
   }
 
   handleActiveGet() {
@@ -179,6 +182,79 @@ export class AirTouchACAccessory {
   handleFanActiveSet(value: CharacteristicValue) {
     this.log.debug('ACACC   | AC Fan Service: Setting active to '+value);
     this.handleActiveSet(value);
+  }
+
+  private getSupportedFanSpeeds() {
+    const ac_ability = this.ac.ac_ability;
+    const supportedSpeeds: number[] = [];
+
+    if (+ac_ability.ac_support_fan_quiet === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.QUIET);
+    }
+    if (+ac_ability.ac_support_fan_low === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.LOW);
+    }
+    if (+ac_ability.ac_support_fan_medium === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.MEDIUM);
+    }
+    if (+ac_ability.ac_support_fan_high === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.HIGH);
+    }
+    if (+ac_ability.ac_support_fan_powerful === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.POWERFUL);
+    }
+    if (+ac_ability.ac_support_fan_turbo === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.TURBO);
+    }
+    if (+ac_ability.ac_support_fan_intelligent === 1) {
+      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.INTELLIGENT);
+    }
+
+    return supportedSpeeds.length > 0 ? supportedSpeeds : [MAGIC.AC_FAN_SPEEDS.LOW];
+  }
+
+  private getRotationSpeedStep() {
+    return 100 / this.supportedFanSpeeds.length;
+  }
+
+  private getRotationPercentageForFanSpeed(fanSpeed: number) {
+    if (fanSpeed === MAGIC.AC_FAN_SPEEDS.AUTO) {
+      return 0;
+    }
+
+    const speedIndex = this.supportedFanSpeeds.indexOf(fanSpeed);
+    if (speedIndex === -1) {
+      return 0;
+    }
+
+    return this.getRotationPercentageForSpeedIndex(speedIndex);
+  }
+
+  private getRotationPercentageForSpeedIndex(speedIndex: number) {
+    return ((speedIndex + 1) / this.supportedFanSpeeds.length) * 100;
+  }
+
+  private getFanSpeedForRotationPercentage(rotationPercentage: number) {
+    if (this.supportsAutoFanSpeed && rotationPercentage <= 0) {
+      return MAGIC.AC_FAN_SPEEDS.AUTO;
+    }
+
+    if (this.supportedFanSpeeds.length === 1) {
+      return this.supportedFanSpeeds[0];
+    }
+
+    let closestSpeedIndex = 0;
+    let smallestDistance = Number.POSITIVE_INFINITY;
+
+    for (let i = 0; i < this.supportedFanSpeeds.length; i++) {
+      const distance = Math.abs(rotationPercentage - this.getRotationPercentageForSpeedIndex(i));
+      if (distance < smallestDistance) {
+        smallestDistance = distance;
+        closestSpeedIndex = i;
+      }
+    }
+
+    return this.supportedFanSpeeds[closestSpeedIndex];
   }
 
   // check if value is undefined, and replace it with a default value
