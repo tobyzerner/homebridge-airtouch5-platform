@@ -161,9 +161,9 @@ export class AirTouchZoneAccessory {
   private configureFanCharacteristics() {
     this.service.getCharacteristic(this.platform.Characteristic.CurrentFanState)
       .onGet(this.handleCurrentFanStateGet.bind(this));
-
-    this.service.getCharacteristic(this.platform.Characteristic.TargetFanState)
-      .onGet(this.handleTargetFanStateGet.bind(this));
+    if (this.service.testCharacteristic(this.platform.Characteristic.TargetFanState)) {
+      this.service.removeCharacteristic(this.service.getCharacteristic(this.platform.Characteristic.TargetFanState));
+    }
   }
 
   private configureBatteryService(serviceChanged: boolean) {
@@ -219,10 +219,6 @@ export class AirTouchZoneAccessory {
     }
 
     return this.platform.Characteristic.CurrentFanState.BLOWING_AIR;
-  }
-
-  handleTargetFanStateGet() {
-    return this.platform.Characteristic.TargetFanState.MANUAL;
   }
 
   handleActiveGet() {
@@ -285,8 +281,6 @@ export class AirTouchZoneAccessory {
     } else {
       this.service.getCharacteristic(this.platform.Characteristic.CurrentFanState)
         .updateValue(this.handleCurrentFanStateGet());
-      this.service.getCharacteristic(this.platform.Characteristic.TargetFanState)
-        .updateValue(this.handleTargetFanStateGet());
     }
 
     if (this.batteryService !== undefined) {
