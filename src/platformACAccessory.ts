@@ -186,31 +186,38 @@ export class AirTouchACAccessory {
 
   private getSupportedFanSpeeds() {
     const ac_ability = this.ac.ac_ability;
-    const supportedSpeeds: number[] = [];
+    const preferredSpeeds: number[] = [];
 
-    if (+ac_ability.ac_support_fan_quiet === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.QUIET);
-    }
     if (+ac_ability.ac_support_fan_low === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.LOW);
+      preferredSpeeds.push(MAGIC.AC_FAN_SPEEDS.LOW);
     }
     if (+ac_ability.ac_support_fan_medium === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.MEDIUM);
+      preferredSpeeds.push(MAGIC.AC_FAN_SPEEDS.MEDIUM);
     }
     if (+ac_ability.ac_support_fan_high === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.HIGH);
+      preferredSpeeds.push(MAGIC.AC_FAN_SPEEDS.HIGH);
     }
     if (+ac_ability.ac_support_fan_powerful === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.POWERFUL);
-    }
-    if (+ac_ability.ac_support_fan_turbo === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.TURBO);
-    }
-    if (+ac_ability.ac_support_fan_intelligent === 1) {
-      supportedSpeeds.push(MAGIC.AC_FAN_SPEEDS.INTELLIGENT);
+      preferredSpeeds.push(MAGIC.AC_FAN_SPEEDS.POWERFUL);
     }
 
-    return supportedSpeeds.length > 0 ? supportedSpeeds : [MAGIC.AC_FAN_SPEEDS.LOW];
+    if (preferredSpeeds.length > 0) {
+      return preferredSpeeds;
+    }
+
+    const fallbackSpeeds: number[] = [];
+
+    if (+ac_ability.ac_support_fan_quiet === 1) {
+      fallbackSpeeds.push(MAGIC.AC_FAN_SPEEDS.QUIET);
+    }
+    if (+ac_ability.ac_support_fan_turbo === 1) {
+      fallbackSpeeds.push(MAGIC.AC_FAN_SPEEDS.TURBO);
+    }
+    if (+ac_ability.ac_support_fan_intelligent === 1) {
+      fallbackSpeeds.push(MAGIC.AC_FAN_SPEEDS.INTELLIGENT);
+    }
+
+    return fallbackSpeeds.length > 0 ? fallbackSpeeds : [MAGIC.AC_FAN_SPEEDS.LOW];
   }
 
   private getRotationSpeedStep() {
