@@ -173,28 +173,12 @@ export class AirTouchACAccessory {
   }
 
   handleFanActiveGet() {
-    const ac_status = this.ac.ac_status!;
-    if (this.handleActiveGet() === this.platform.Characteristic.Active.ACTIVE && +ac_status.ac_mode === MAGIC.AC_MODES.FAN) {
-      return this.platform.Characteristic.Active.ACTIVE;
-    }
-
-    return this.platform.Characteristic.Active.INACTIVE;
+    return this.handleActiveGet();
   }
 
   handleFanActiveSet(value: CharacteristicValue) {
-    const numValue = Number(value);
     this.log.debug('ACACC   | AC Fan Service: Setting active to '+value);
-
-    switch(numValue) {
-      case this.platform.Characteristic.Active.INACTIVE:
-        if (this.handleFanActiveGet() === this.platform.Characteristic.Active.ACTIVE) {
-          this.api.acSetActive(+this.ac.ac_number, false);
-        }
-        break;
-      case this.platform.Characteristic.Active.ACTIVE:
-        this.api.acSetMode(+this.ac.ac_number, MAGIC.AC_MODES.FAN);
-        break;
-    }
+    this.handleActiveSet(value);
   }
 
   // check if value is undefined, and replace it with a default value
