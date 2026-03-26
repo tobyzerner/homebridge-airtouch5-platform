@@ -18,12 +18,6 @@ I'd recommend that you make sure you're setup correctly on the Airtouch.  Go in 
 
   
 
-## Limitations
-
-  
-* AirTouch 5 supports dry/fan modes.  This plugin doesn't, because I can't figure out how Homekit would.  
-  
-
 ## Installation
 It should be as easy as finding *homebridge-airtouch5-platform* and installing.  The config file should just be as simple as:
 
@@ -45,4 +39,3 @@ The only additional config is setting unit IPs manually:
     }
 
   
-

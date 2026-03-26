@@ -5,8 +5,10 @@ import { AirtouchAPI } from './api';
 import { MAGIC } from './magic';
 
 export class AirTouchZoneAccessory {
-  private service: Service;
-  private batteryService: Service;
+  private service!: Service;
+  private batteryService?: Service;
+  private serviceConfigured = false;
+  private usingHeaterCooler = false;
   AirtouchId;
   ZoneNumber;
   minCool: number;
@@ -55,19 +57,80 @@ export class AirTouchZoneAccessory {
         this.AirtouchId || 'Unknown',
       );
 
-    this.service = this.accessory.getService(this.platform.Service.HeaterCooler) ||
-                    this.accessory.addService(this.platform.Service.HeaterCooler);
+    this.configureServices();
 
-    this.batteryService = this.accessory.getService(this.platform.Service.Battery) ||
-                    this.accessory.addService(this.platform.Service.Battery);
+  }
 
-    this.batteryService.getCharacteristic(this.platform.Characteristic.StatusLowBattery)
-      .onGet(this.handleBatteryLowGet.bind(this));
+  updateStatus(zone: Zone, ac: AC) {
+    this.zone = zone;
+    this.ac = ac;
+    this.configureServices();
+    this.updateAll();
+  }
 
+  private configureServices() {
+    const shouldUseHeaterCooler = this.shouldUseHeaterCooler();
+    const serviceChanged = !this.serviceConfigured || this.usingHeaterCooler !== shouldUseHeaterCooler;
+
+    if (serviceChanged) {
+      this.configurePrimaryService(shouldUseHeaterCooler);
+      this.configureSharedCharacteristics();
+
+      if (shouldUseHeaterCooler) {
+        this.configureHeaterCoolerCharacteristics();
+      } else {
+        this.configureFanCharacteristics();
+      }
+    }
+
+    this.configureBatteryService(serviceChanged);
+  }
+
+  private shouldUseHeaterCooler() {
+    return +this.zone.zone_status!.zone_control_type === 1;
+  }
+
+  private shouldExposeBatteryService() {
+    return +this.zone.zone_status!.zone_has_sensor === 1;
+  }
+
+  private configurePrimaryService(useHeaterCooler: boolean) {
+    const desiredService = useHeaterCooler ? this.platform.Service.HeaterCooler : this.platform.Service.Fanv2;
+    const staleService = useHeaterCooler ?
+      this.accessory.getService(this.platform.Service.Fanv2) :
+      this.accessory.getService(this.platform.Service.HeaterCooler);
+
+    if (staleService !== undefined) {
+      if (this.batteryService !== undefined) {
+        staleService.removeLinkedService(this.batteryService);
+      }
+      this.accessory.removeService(staleService);
+    }
+
+    this.service = this.accessory.getService(desiredService) || this.accessory.addService(desiredService);
     this.service.setPrimaryService();
-    this.service.addLinkedService(this.batteryService);
+    this.usingHeaterCooler = useHeaterCooler;
+    this.serviceConfigured = true;
+  }
 
+  private configureSharedCharacteristics() {
+    this.service.getCharacteristic(this.platform.Characteristic.Active)
+      .onGet(this.handleActiveGet.bind(this))
+      .onSet(this.handleActiveSet.bind(this));
 
+    this.service.getCharacteristic(this.platform.Characteristic.Name)
+      .onGet(this.handleNameGet.bind(this));
+
+    this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .onGet(this.handleRotationSpeedGet.bind(this))
+      .onSet(this.handleRotationSpeedSet.bind(this)).setProps({
+        minValue: 0,
+        maxValue: 100,
+        minStep: 5,
+      });
+  }
+
+  private configureHeaterCoolerCharacteristics() {
     this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState)
       .onGet(this.handleCurrentHeatingCoolingStateGet.bind(this));
 
@@ -78,14 +141,6 @@ export class AirTouchZoneAccessory {
     this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .onGet(this.handleCurrentTemperatureGet.bind(this));
 
-
-    this.service.getCharacteristic(this.platform.Characteristic.Active)
-      .onGet(this.handleActiveGet.bind(this))
-      .onSet(this.handleActiveSet.bind(this));
-
-    this.service.getCharacteristic(this.platform.Characteristic.Name)
-      .onGet(this.handleNameGet.bind(this));
-
     this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature)
       .onGet(this.handleTargetTemperatureGet.bind(this))
       .onSet(this.handleTargetTemperatureSet.bind(this)).setProps({
@@ -93,6 +148,7 @@ export class AirTouchZoneAccessory {
         maxValue: this.maxCool,
         minStep: this.step,
       });
+
     this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature)
       .onGet(this.handleTargetTemperatureGet.bind(this))
       .onSet(this.handleTargetTemperatureSet.bind(this)).setProps({
@@ -100,21 +156,36 @@ export class AirTouchZoneAccessory {
         maxValue: this.maxHeat,
         minStep: this.step,
       });
-
-    this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .onGet(this.handleRotationSpeedGet.bind(this))
-      .onSet(this.handleRotationSpeedSet.bind(this)).setProps({
-        minValue: 0,
-        maxValue: 100,
-        minStep: 5,
-      });
-
   }
 
-  updateStatus(zone: Zone, ac: AC) {
-    this.zone = zone;
-    this.ac = ac;
-    this.updateAll();
+  private configureFanCharacteristics() {
+    this.service.getCharacteristic(this.platform.Characteristic.CurrentFanState)
+      .onGet(this.handleCurrentFanStateGet.bind(this));
+
+    this.service.getCharacteristic(this.platform.Characteristic.TargetFanState)
+      .onGet(this.handleTargetFanStateGet.bind(this));
+  }
+
+  private configureBatteryService(serviceChanged: boolean) {
+    if (this.shouldExposeBatteryService()) {
+      const existingBatteryService = this.accessory.getService(this.platform.Service.Battery);
+      this.batteryService = existingBatteryService || this.accessory.addService(this.platform.Service.Battery);
+
+      this.batteryService.getCharacteristic(this.platform.Characteristic.StatusLowBattery)
+        .onGet(this.handleBatteryLowGet.bind(this));
+
+      if (serviceChanged || existingBatteryService === undefined) {
+        this.service.addLinkedService(this.batteryService);
+      }
+      return;
+    }
+
+    const existingBatteryService = this.accessory.getService(this.platform.Service.Battery);
+    if (existingBatteryService !== undefined) {
+      this.service.removeLinkedService(existingBatteryService);
+      this.accessory.removeService(existingBatteryService);
+    }
+    this.batteryService = undefined;
   }
 
   handleBatteryLowGet() {
@@ -139,6 +210,19 @@ export class AirTouchZoneAccessory {
     const numValue = Number(value);
     this.log.debug('ZONEACC | Zone setting rotation speed to: '+numValue);
     this.api.zoneSetPercentage(+this.zone.zone_number, numValue);
+  }
+
+  handleCurrentFanStateGet() {
+    const zone_status = this.zone.zone_status!;
+    if (+zone_status.zone_power_state === 0 || +zone_status.zone_damper_position === 0) {
+      return this.platform.Characteristic.CurrentFanState.INACTIVE;
+    }
+
+    return this.platform.Characteristic.CurrentFanState.BLOWING_AIR;
+  }
+
+  handleTargetFanStateGet() {
+    return this.platform.Characteristic.TargetFanState.MANUAL;
   }
 
   handleActiveGet() {
@@ -180,22 +264,35 @@ export class AirTouchZoneAccessory {
   }
 
   updateAll() {
-    this.service.getCharacteristic(this.platform.Characteristic.TargetHeaterCoolerState)
-      .updateValue(this.handleTargetHeatingCoolingStateGet());
-    this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState)
-      .updateValue(this.handleCurrentHeatingCoolingStateGet());
-    this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
-      .updateValue(this.handleCurrentTemperatureGet());
-    this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature)
-      .updateValue(this.handleTargetTemperatureGet());
-    this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature)
-      .updateValue(this.handleTargetTemperatureGet());
     this.service.getCharacteristic(this.platform.Characteristic.Name)
       .updateValue(this.handleNameGet());
     this.service.getCharacteristic(this.platform.Characteristic.Active)
       .updateValue(this.handleActiveGet());
     this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .updateValue(this.handleRotationSpeedGet());
+
+    if (this.usingHeaterCooler) {
+      this.service.getCharacteristic(this.platform.Characteristic.TargetHeaterCoolerState)
+        .updateValue(this.handleTargetHeatingCoolingStateGet());
+      this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState)
+        .updateValue(this.handleCurrentHeatingCoolingStateGet());
+      this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+        .updateValue(this.handleCurrentTemperatureGet());
+      this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature)
+        .updateValue(this.handleTargetTemperatureGet());
+      this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature)
+        .updateValue(this.handleTargetTemperatureGet());
+    } else {
+      this.service.getCharacteristic(this.platform.Characteristic.CurrentFanState)
+        .updateValue(this.handleCurrentFanStateGet());
+      this.service.getCharacteristic(this.platform.Characteristic.TargetFanState)
+        .updateValue(this.handleTargetFanStateGet());
+    }
+
+    if (this.batteryService !== undefined) {
+      this.batteryService.getCharacteristic(this.platform.Characteristic.StatusLowBattery)
+        .updateValue(this.handleBatteryLowGet());
+    }
   }
 
   /**

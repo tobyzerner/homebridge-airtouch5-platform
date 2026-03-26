@@ -700,6 +700,25 @@ export class AirtouchAPI {
   }
 
   /**
+   * Send command to set a specific AC operating mode while keeping the unit powered on
+   * @param unit_number - AC unit identifier (0-7)
+   * @param mode - AirTouch mode code from MAGIC.AC_MODES
+   */
+  acSetMode(unit_number: number, mode: number): void {
+    const target: AcControlUnit = {
+      ac_unit_number: unit_number,
+      ac_power_state: MAGIC.AC_POWER_STATES.ON,
+      ac_mode: mode,
+    };
+
+    this.log.debug('API     | Setting AC mode.  Full Control Layout: %s', this.logAcControlUnit(target));
+    const data: Buffer = this.encode_ac_control(target);
+    const to_send = Buffer.from([0x00, 0x04, 0x00, 0x01, ...data]);
+    const message = this.assemble_standard_message(MAGIC.SUBTYPE_AC_CTRL, to_send);
+    this.send(message);
+  }
+
+  /**
    * Send command to change AC fan speed
    * @param unit_number - AC unit identifier (0-15)
    * @param speed - Fan speed setting (0=auto, 1=quiet, 2=low, etc.)

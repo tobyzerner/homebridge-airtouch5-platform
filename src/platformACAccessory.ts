@@ -8,7 +8,7 @@ import { MAGIC } from './magic';
 
 export class AirTouchACAccessory {
   private service: Service;
-  // private fanService: Service;
+  private fanService: Service;
   AirtouchId;
   ACNumber;
   minTemp: number;
@@ -54,6 +54,9 @@ export class AirTouchACAccessory {
     this.service = this.accessory.getService(this.platform.Service.HeaterCooler) ||
                     this.accessory.addService(this.platform.Service.HeaterCooler);
 
+    this.fanService = this.accessory.getService(this.platform.Service.Fanv2) ||
+                      this.accessory.addService(this.platform.Service.Fanv2, `${ac.ac_ability.ac_name} Fan`, 'fan-mode');
+
     this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState)
       .onGet(this.handleCurrentHeaterCoolerStateGet.bind(this));
 
@@ -93,11 +96,33 @@ export class AirTouchACAccessory {
         maxValue: 99,
         minStep: 33,
       });
+
+    this.fanService.getCharacteristic(this.platform.Characteristic.Active)
+      .onGet(this.handleFanActiveGet.bind(this))
+      .onSet(this.handleFanActiveSet.bind(this));
+
+    this.fanService.getCharacteristic(this.platform.Characteristic.CurrentFanState)
+      .onGet(this.handleCurrentFanStateGet.bind(this));
+
+    this.fanService.getCharacteristic(this.platform.Characteristic.TargetFanState)
+      .onGet(this.handleTargetFanStateGet.bind(this));
+
+    this.fanService.getCharacteristic(this.platform.Characteristic.Name)
+      .onGet(this.handleFanNameGet.bind(this));
+
+    this.fanService.getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .onGet(this.handleRotationSpeedGet.bind(this))
+      .onSet(this.handleRotationSpeedSet.bind(this)).setProps({
+        minValue: 0,
+        maxValue: 99,
+        minStep: 33,
+      });
   }
 
   updateStatus(ac: AC, zones: Array<Zone>) {
     this.zones = zones;
     this.ac = ac;
+    this.updateAll();
   }
 
   handleRotationSpeedGet() {
@@ -147,6 +172,31 @@ export class AirTouchACAccessory {
     }
   }
 
+  handleFanActiveGet() {
+    const ac_status = this.ac.ac_status!;
+    if (this.handleActiveGet() === this.platform.Characteristic.Active.ACTIVE && +ac_status.ac_mode === MAGIC.AC_MODES.FAN) {
+      return this.platform.Characteristic.Active.ACTIVE;
+    }
+
+    return this.platform.Characteristic.Active.INACTIVE;
+  }
+
+  handleFanActiveSet(value: CharacteristicValue) {
+    const numValue = Number(value);
+    this.log.debug('ACACC   | AC Fan Service: Setting active to '+value);
+
+    switch(numValue) {
+      case this.platform.Characteristic.Active.INACTIVE:
+        if (this.handleFanActiveGet() === this.platform.Characteristic.Active.ACTIVE) {
+          this.api.acSetActive(+this.ac.ac_number, false);
+        }
+        break;
+      case this.platform.Characteristic.Active.ACTIVE:
+        this.api.acSetMode(+this.ac.ac_number, MAGIC.AC_MODES.FAN);
+        break;
+    }
+  }
+
   // check if value is undefined, and replace it with a default value
   isNull(val, nullVal) {
     return val === undefined ? nullVal : val;
@@ -171,6 +221,17 @@ export class AirTouchACAccessory {
     this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .updateValue(this.handleRotationSpeedGet());
 
+    this.fanService.getCharacteristic(this.platform.Characteristic.Name)
+      .updateValue(this.handleFanNameGet());
+    this.fanService.getCharacteristic(this.platform.Characteristic.Active)
+      .updateValue(this.handleFanActiveGet());
+    this.fanService.getCharacteristic(this.platform.Characteristic.CurrentFanState)
+      .updateValue(this.handleCurrentFanStateGet());
+    this.fanService.getCharacteristic(this.platform.Characteristic.TargetFanState)
+      .updateValue(this.handleTargetFanStateGet());
+    this.fanService.getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .updateValue(this.handleRotationSpeedGet());
+
   }
 
   /**
@@ -178,6 +239,10 @@ export class AirTouchACAccessory {
    */
   handleNameGet() {
     return this.ac.ac_ability.ac_name;
+  }
+
+  handleFanNameGet() {
+    return this.ac.ac_ability.ac_name + ' Fan';
   }
 
 
@@ -226,8 +291,7 @@ export class AirTouchACAccessory {
         return this.platform.Characteristic.CurrentHeaterCoolerState.COOLING;
         break;
       case 3:
-        this.log.info('ACACC   | AC is set to FAN mode.  This is currently unhandled.  Reporting it as cool instead. ');
-        return this.platform.Characteristic.CurrentHeaterCoolerState.COOLING;
+        return this.platform.Characteristic.CurrentHeaterCoolerState.IDLE;
         break;
       case 4:
         return this.platform.Characteristic.CurrentHeaterCoolerState.COOLING;
@@ -264,8 +328,7 @@ export class AirTouchACAccessory {
         return this.platform.Characteristic.TargetHeaterCoolerState.COOL;
         break;
       case 3:
-        this.log.info('ACACC   | AC is set to FAN mode.  This is currently unhandled.  Reporting it as cool instead. ');
-        return this.platform.Characteristic.TargetHeaterCoolerState.COOL;
+        return this.platform.Characteristic.TargetHeaterCoolerState.AUTO;
         break;
       case 4:
         return this.platform.Characteristic.TargetHeaterCoolerState.COOL;
@@ -300,6 +363,22 @@ export class AirTouchACAccessory {
         this.api.acSetTargetHeatingCoolingState(ac_number, MAGIC.AC_TARGET_STATES.AUTO);
         break;
     }
+  }
+
+  handleCurrentFanStateGet() {
+    if (this.handleFanActiveGet() === this.platform.Characteristic.Active.INACTIVE) {
+      return this.platform.Characteristic.CurrentFanState.INACTIVE;
+    }
+
+    if (this.areAllZonesClosed(this.ac.ac_number)) {
+      return this.platform.Characteristic.CurrentFanState.IDLE;
+    }
+
+    return this.platform.Characteristic.CurrentFanState.BLOWING_AIR;
+  }
+
+  handleTargetFanStateGet() {
+    return this.platform.Characteristic.TargetFanState.MANUAL;
   }
 
   /**
